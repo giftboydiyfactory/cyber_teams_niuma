@@ -7,13 +7,42 @@ NiumaBot delegates all inbound-message logic here.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
     from niuma.main import NiumaBot
     from niuma.manager import ManagerDecision
 
 logger = logging.getLogger("niuma.handler")
+
+_MEMBER_PERMISSION_HINT = (
+    "This user is a MEMBER (not admin). "
+    "You MUST only use action 'reply'. "
+    "Do NOT use 'new' or 'resume'."
+)
+
+_MEMBER_PERMISSION_DENIED = (
+    "You don't have permission to execute tasks. Contact an admin."
+)
+
+
+def get_user_role(
+    user_email: str,
+    admin_users: list[str],
+    allowed_users: list[str],
+) -> Literal["admin", "member", "unknown"]:
+    """Return the role of a user based on config lists.
+
+    Returns:
+        "admin"   — user is in admin_users (full access)
+        "member"  — user is in allowed_users only (chat/reply only)
+        "unknown" — user is in neither list (messages should be ignored)
+    """
+    if user_email in admin_users:
+        return "admin"
+    if user_email in allowed_users:
+        return "member"
+    return "unknown"
 
 
 async def handle_message(
@@ -26,20 +55,46 @@ async def handle_message(
     """Route a user message through the stateful Manager session.
 
     The Manager remembers all context and decides: new, resume, reply, or report.
+    Admin users get full access; members are restricted to reply-only actions.
     """
     reply_only = bot._is_reply_only(chat_id)
     rt = message_id
 
+    role = get_user_role(
+        user_email,
+        admin_users=bot._config.security.admin_users,
+        allowed_users=bot._config.security.allowed_users,
+    )
+    is_admin = role == "admin"
+
+    # For members, append a hint to the prompt so the Manager self-restricts.
+    effective_prompt = prompt
+    if not is_admin:
+        effective_prompt = f"{prompt}\n\n[SYSTEM HINT] {_MEMBER_PERMISSION_HINT}"
+
     try:
         decision = await bot._manager.decide(
-            user_message=prompt,
+            user_message=effective_prompt,
             user_email=user_email,
         )
     except Exception:
         logger.exception("Manager failed for message from %s", user_email)
         return
 
-    logger.info("Manager: action=%s for user=%s", decision.action, user_email)
+    logger.info(
+        "Manager: action=%s for user=%s (role=%s)", decision.action, user_email, role
+    )
+
+    # Hard enforcement: members must not trigger worker actions regardless of
+    # what the Manager decided (safety net in case the hint was ignored).
+    if not is_admin and decision.action in ("new", "resume"):
+        logger.warning(
+            "Blocking action=%s for member user=%s — overriding to permission-denied reply",
+            decision.action,
+            user_email,
+        )
+        await bot._responder.send_text(chat_id, _MEMBER_PERMISSION_DENIED, reply_to=rt)
+        return
 
     # Enforce reply-only mode
     if reply_only and decision.action not in ("reply", "report"):
