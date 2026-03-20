@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -53,19 +54,30 @@ class Poller:
     def parse_messages(self, raw_json: str) -> list[TeamsMessage]:
         """Parse teams-cli JSON output into TeamsMessage objects."""
         data = json.loads(raw_json)
-        if not data.get("success"):
-            logger.warning("teams-cli returned unsuccessful response")
+
+        # Handle both formats: {"data": [...]} and {"success": true, "data": {"messages": [...]}}
+        raw_data = data.get("data", [])
+        if isinstance(raw_data, dict):
+            messages_data = raw_data.get("messages", [])
+        elif isinstance(raw_data, list):
+            messages_data = raw_data
+        else:
+            logger.warning("Unexpected teams-cli data format")
             return []
 
-        messages_data = data.get("data", {}).get("messages", [])
         result = []
         for msg in messages_data:
             from_user = msg.get("from", {}).get("user", {})
+            email = from_user.get("email", "")
+            if not email:
+                # Fallback: use displayName or user id when email not available
+                email = from_user.get("displayName", from_user.get("id", "unknown"))
+            body_raw = msg.get("body", {}).get("content", "")
             result.append(TeamsMessage(
                 id=msg["id"],
                 sender=from_user.get("displayName", "unknown"),
-                sender_email=from_user.get("email", "unknown"),
-                body=msg.get("body", {}).get("content", ""),
+                sender_email=email,
+                body=_strip_html(body_raw),
                 timestamp=msg.get("createdDateTime", ""),
             ))
         return result
@@ -103,3 +115,8 @@ class Poller:
                 found = True
 
         return new_messages
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags from text."""
+    return re.sub(r"<[^>]+>", "", text).strip()

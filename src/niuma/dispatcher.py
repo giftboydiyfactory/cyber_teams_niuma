@@ -86,11 +86,16 @@ class DispatchResult:
     def from_claude_output(cls, raw_output: str) -> "DispatchResult":
         """Parse the JSON output from claude -p --output-format json."""
         outer = json.loads(raw_output)
-        # claude --output-format json wraps the result in {"result": "...", ...}
-        result_str = outer.get("result", "{}")
-        inner = json.loads(result_str) if isinstance(result_str, str) else result_str
+
+        # With --json-schema, Claude puts structured output in "structured_output"
+        # Without it, the result is in "result" as a JSON string
+        inner = outer.get("structured_output")
+        if inner is None:
+            result_str = outer.get("result", "{}")
+            inner = json.loads(result_str) if isinstance(result_str, str) and result_str else {}
+
         return cls(
-            action=inner["action"],
+            action=inner.get("action", "reply"),
             session_id=inner.get("session_id"),
             prompt=inner.get("prompt"),
             cwd=inner.get("cwd"),
