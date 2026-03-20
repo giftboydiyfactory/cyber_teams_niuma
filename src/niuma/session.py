@@ -122,6 +122,7 @@ class SessionManager:
         await self._db.update_session(session_id, status="running")
 
         claude_cmd = _claude_command()
+        resume_cwd = session.get("cwd") or self._config.default_cwd
         proc = await asyncio.create_subprocess_exec(
             *claude_cmd, "-p", prompt,
             "--resume", claude_session_id,
@@ -129,6 +130,7 @@ class SessionManager:
             "--permission-mode", self._config.permission_mode,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=resume_cwd,
         )
 
         self._active[session_id] = proc
