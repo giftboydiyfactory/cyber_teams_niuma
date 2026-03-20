@@ -13,7 +13,6 @@ from niuma.config import NiumaConfig, load_config, ConfigError
 from niuma.db import Database
 from niuma.dispatcher import Dispatcher, DispatchResult
 from niuma.poller import Poller
-from niuma.scanner import scan_all_sessions, scan_sessions_summary
 from niuma.teams_api import create_session_chat
 from niuma.responder import Responder
 from niuma.session import SessionManager
@@ -199,29 +198,36 @@ class NiumaBot:
         self, chat_id: str, user_email: str, prompt: str,
         message_id: str = "",
     ) -> None:
-        """Dispatch a single user message through the Claude dispatcher."""
+        """Dispatch a single user message through the Claude dispatcher.
+
+        The dispatcher only decides: new, resume, or reply.
+        All complex operations (list, scan, import, stop, etc.) are handled
+        by worker sessions — not hardcoded in Python.
+        """
         reply_only = self._is_reply_only(chat_id)
-        rt = message_id  # reply_to target for thread replies
+        rt = message_id
 
         try:
             sessions = await self._session_mgr.list_active()
-            scanned = scan_all_sessions()
             dispatch = await self._dispatcher.dispatch(
                 user_prompt=prompt,
                 user_email=user_email,
                 sessions=sessions,
-                scanned_sessions=scanned,
                 reply_only=reply_only,
             )
         except Exception:
             logger.exception("Dispatcher failed for message from %s", user_email)
             return
 
-        logger.info("Dispatch: action=%s for user=%s chat=%s", dispatch.action, user_email, "reply_only" if reply_only else "full")
+        logger.info("Dispatch: action=%s for user=%s", dispatch.action, user_email)
 
         # Enforce reply-only mode
-        if reply_only and dispatch.action not in ("reply", "list", "status", "scan_all"):
-            await self._responder.send_text(chat_id, dispatch.reply_text or dispatch.prompt or "This chat is in reply-only mode.", reply_to=rt)
+        if reply_only and dispatch.action != "reply":
+            await self._responder.send_text(
+                chat_id,
+                dispatch.reply_text or "This chat is in reply-only mode.",
+                reply_to=rt,
+            )
             return
 
         if dispatch.action == "new":
@@ -230,75 +236,6 @@ class NiumaBot:
             await self._handle_resume(chat_id, dispatch, rt, user_email=user_email)
         elif dispatch.action == "reply":
             await self._responder.send_text(chat_id, dispatch.reply_text or "", reply_to=rt)
-        elif dispatch.action == "list":
-            await self._handle_list(chat_id, user_email, rt)
-        elif dispatch.action == "status":
-            await self._handle_status(chat_id, user_email, dispatch, rt)
-        elif dispatch.action == "stop":
-            await self._handle_stop(chat_id, user_email, dispatch, rt)
-        elif dispatch.action == "scan_all":
-            await self._handle_scan_all(chat_id, rt)
-        elif dispatch.action == "import":
-            await self._handle_import(chat_id, user_email, dispatch, rt)
-
-    async def _handle_scan_all(self, chat_id: str, reply_to: str = "") -> None:
-        summary = scan_sessions_summary(limit=15)
-        await self._responder.send_text(chat_id, summary, reply_to=reply_to)
-
-    async def _handle_import(
-        self, chat_id: str, user_email: str, dispatch: DispatchResult,
-        reply_to: str = "",
-    ) -> None:
-        """Import an external Claude session and optionally resume it."""
-        claude_sid = dispatch.session_id
-        if not claude_sid:
-            await self._responder.send_text(chat_id, "No session ID provided to import.", reply_to=reply_to)
-            return
-
-        all_sessions = scan_all_sessions()
-        match = None
-        for s in all_sessions:
-            if s["claude_session"].startswith(claude_sid):
-                match = s
-                break
-
-        if not match:
-            await self._responder.send_text(
-                chat_id, f"Session {claude_sid} not found in Claude history.", reply_to=reply_to,
-            )
-            return
-
-        imported = await self._db.import_session(
-            claude_session=match["claude_session"],
-            chat_id=chat_id,
-            created_by=user_email,
-            prompt=match.get("last_user_msg") or match.get("name") or "imported session",
-            cwd=match["cwd"],
-        )
-
-        sid = imported["id"]
-        prompt = dispatch.prompt
-
-        if prompt:
-            try:
-                await self._session_mgr.resume_session(
-                    session_id=sid, prompt=prompt,
-                )
-                await self._responder.send_processing(chat_id, sid, reply_to=reply_to)
-                asyncio.create_task(self._watch_session(chat_id, sid, reply_to))
-            except (ValueError, RuntimeError) as e:
-                await self._responder.send_text(chat_id, str(e), reply_to=reply_to)
-        else:
-            name = match.get("name") or "unnamed"
-            await self._responder.send_text(
-                chat_id,
-                f"Imported session [{sid}] (was {match['claude_session'][:12]}...)\n"
-                f"Name: {name}\n"
-                f"Dir: {match['cwd']}\n"
-                f"Turns: {match['num_turns']}\n\n"
-                f"You can now resume it with: @niuma 继续 session {sid} <your request>",
-                reply_to=reply_to,
-            )
 
     async def _handle_new(
         self, chat_id: str, user_email: str, dispatch: DispatchResult,
@@ -358,30 +295,10 @@ class NiumaBot:
             await self._responder.send_text(chat_id, "No session ID to resume.", reply_to=reply_to)
             return
 
-        # Check if session exists in DB
         session = await self._db.get_session(sid)
-
-        # If not in DB, try auto-import from Claude history
-        if not session:
-            all_scanned = scan_all_sessions()
-            match = None
-            for s in all_scanned:
-                if sid in s["claude_session"]:
-                    match = s
-                    break
-            if match:
-                session = await self._db.import_session(
-                    claude_session=match["claude_session"],
-                    chat_id=chat_id,
-                    created_by=user_email or "unknown",
-                    prompt=match.get("last_user_msg") or match.get("name") or "imported",
-                    cwd=match["cwd"],
-                )
-                logger.info("Auto-imported session %s -> [%s]", sid, session["id"])
-
         if not session:
             await self._responder.send_text(
-                chat_id, f"Session {sid} not found in DB or Claude history.",
+                chat_id, f"Session {sid} not found.",
                 reply_to=reply_to,
             )
             return
@@ -405,63 +322,6 @@ class NiumaBot:
             asyncio.create_task(self._watch_session(output_chat, actual_sid, output_reply_to))
         except (ValueError, RuntimeError) as e:
             await self._responder.send_text(chat_id, str(e), reply_to=reply_to)
-
-    async def _handle_list(
-        self, chat_id: str, user_email: str,
-        reply_to: str = "",
-    ) -> None:
-        is_admin = user_email in self._config.security.admin_users
-        if is_admin:
-            sessions = await self._session_mgr.list_active()
-        else:
-            all_sessions = await self._session_mgr.list_active()
-            sessions = [s for s in all_sessions if s["created_by"] == user_email]
-        await self._responder.send_session_list(chat_id, sessions, reply_to=reply_to)
-
-    async def _handle_status(
-        self, chat_id: str, user_email: str, dispatch: DispatchResult,
-        reply_to: str = "",
-    ) -> None:
-        sid = dispatch.session_id
-        if sid:
-            session = await self._session_mgr.get_result(sid)
-            if session:
-                await self._responder.send_status(chat_id, session, reply_to=reply_to)
-            else:
-                await self._responder.send_text(
-                    chat_id, f"Session {sid} not found.", reply_to=reply_to,
-                )
-        else:
-            await self._handle_list(chat_id, user_email, reply_to)
-
-    async def _handle_stop(
-        self, chat_id: str, user_email: str, dispatch: DispatchResult,
-        reply_to: str = "",
-    ) -> None:
-        sid = dispatch.session_id
-        if not sid:
-            await self._responder.send_text(chat_id, "No session ID to stop.", reply_to=reply_to)
-            return
-
-        session = await self._session_mgr.get_result(sid)
-        if not session:
-            await self._responder.send_text(
-                chat_id, f"Session {sid} not found.", reply_to=reply_to,
-            )
-            return
-
-        is_owner = session["created_by"] == user_email
-        is_admin = user_email in self._config.security.admin_users
-        if not (is_owner or is_admin):
-            await self._responder.send_text(
-                chat_id,
-                f"Permission denied: you don't own session {sid}.",
-                reply_to=reply_to,
-            )
-            return
-
-        await self._session_mgr.stop_session(sid)
-        await self._responder.send_text(chat_id, f"Session {sid} stopped.", reply_to=reply_to)
 
     async def _watch_session(
         self, chat_id: str, session_id: str, reply_to: str = "",

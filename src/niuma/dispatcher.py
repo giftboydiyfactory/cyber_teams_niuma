@@ -13,28 +13,22 @@ from niuma.config import ClaudeConfig
 logger = logging.getLogger(__name__)
 
 _DISPATCHER_SYSTEM_PROMPT = """\
-You are the niuma-bot dispatcher. Your job is to route user messages to the right action.
+You are the niuma-bot dispatcher. Your ONLY job is to route user messages to one of THREE actions.
 
 You receive:
 - The user's message
 - The user's email
-- A list of currently tracked sessions (id, status, prompt summary, cwd, created_by)
+- Context: known sessions and Claude history
 
-You must decide:
-1. Is the user referring to an existing session? (e.g., "how's that going", "continue the analysis")
-   -> Return action "resume" with the session_id and the user's follow-up prompt.
-2. Is the user requesting a new task?
-   -> Return action "new" with the prompt and inferred cwd (from paths mentioned, or null).
-3. Is the user asking a simple question that doesn't need a worker session?
-   -> Return action "reply" with reply_text containing your direct answer.
-4. Is the user asking about session status?
-   -> Return action "status" with session_id if specific, or "list" if asking about all.
-5. Does the user want to stop a session?
-   -> Return action "stop" with the session_id.
-6. Does the user want to see ALL Claude Code sessions across all directories (not just niuma sessions)?
-   -> Return action "scan_all".
-7. Does the user want to import/resume an external Claude session (by UUID or partial ID)?
-   -> Return action "import" with session_id set to the claude session UUID (or prefix).
+THREE possible actions:
+
+1. "reply" — The user asks a simple factual question you can answer directly WITHOUT running any code, tools, or commands. Examples: "what is 2+2", "what time is it", "explain what niuma-bot is".
+
+2. "new" — The user wants ANYTHING that requires execution: running code, analyzing files, creating things, managing sessions, listing sessions, importing sessions, stopping sessions, scanning history, etc. Basically ANYTHING that is not a trivial factual question. The prompt should faithfully pass through the user's full request. Include cwd if the user mentions a path.
+
+3. "resume" — The user clearly refers to a SPECIFIC existing session (by ID, by "刚才那个", by describing a previous task). Return the session_id and the follow-up prompt.
+
+IMPORTANT: When in doubt between "reply" and "new", choose "new". The worker session has full Claude Code capabilities (file access, shell, tools). You do NOT. Only use "reply" for truly trivial questions.
 
 Return ONLY valid JSON matching the required schema. No other text.\
 """
@@ -42,7 +36,7 @@ Return ONLY valid JSON matching the required schema. No other text.\
 _DISPATCH_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
-        "action": {"enum": ["new", "resume", "reply", "status", "stop", "list", "scan_all", "import"]},
+        "action": {"enum": ["new", "resume", "reply"]},
         "session_id": {"type": "string"},
         "prompt": {"type": "string"},
         "cwd": {"type": "string"},
@@ -58,7 +52,6 @@ def build_dispatcher_prompt(
     user_prompt: str,
     user_email: str,
     sessions: list[dict[str, Any]],
-    scanned_sessions: Optional[list[dict[str, Any]]] = None,
     reply_only: bool = False,
 ) -> str:
     """Build the prompt sent to the dispatcher Claude session."""
@@ -78,27 +71,9 @@ def build_dispatcher_prompt(
     else:
         sessions_text = "No known sessions."
 
-    # Build scanned sessions text (Claude history not yet in DB)
-    if scanned_sessions:
-        # Exclude sessions already in DB
-        db_claude_ids = {s.get("claude_session", "") for s in sessions}
-        external = [s for s in scanned_sessions if s["claude_session"] not in db_claude_ids]
-        if external:
-            ext_lines = []
-            for s in external[:15]:
-                name = s.get("name") or s.get("first_user_msg", "")[:50] or "unnamed"
-                ext_lines.append(
-                    f"  - [{s['claude_session'][:12]}] name=\"{name}\" "
-                    f"turns={s['num_turns']} cwd={s['cwd']}"
-                )
-            sessions_text += (
-                "\n\nClaude history sessions (not yet imported, use action \"import\" with session_id to import+resume):\n"
-                + "\n".join(ext_lines)
-            )
-
     reply_only_hint = (
-        "\n- REPLY-ONLY MODE: This chat is in reply-only mode. You MUST use action \"reply\" and answer the question directly. "
-        "Do NOT use \"new\", \"resume\", \"stop\", or \"import\". Only \"reply\", \"list\", \"status\", and \"scan_all\" are allowed."
+        "\n- REPLY-ONLY MODE: This chat is in reply-only mode. You MUST use action \"reply\" and answer directly. "
+        "Do NOT use \"new\" or \"resume\"."
         if reply_only else ""
     )
 
@@ -108,10 +83,11 @@ Message: {user_prompt}
 
 {sessions_text}
 
-IMPORTANT:
-- If the user refers to a previous task (e.g. "刚才那个", "continue", "接着上次"), match it to an existing session and use action "resume" with that session_id.
-- Only resume sessions marked resumable=YES. If a session is resumable=NO (was killed/failed before completing), tell the user via "reply" that it cannot be resumed and suggest starting a new task.
-- Only use "new" if the user is clearly requesting something unrelated to any existing session.
+ROUTING RULES:
+- If the user refers to a previous task (e.g. "刚才那个", "continue", "接着上次"), use "resume" with the matching session_id.
+- Only resume sessions marked resumable=YES. If resumable=NO, use "new" instead (the worker will handle it).
+- For ANYTHING requiring execution (list sessions, scan history, create things, stop sessions, analyze code, etc.) → use "new".
+- Only use "reply" for trivial factual questions that need zero tools.
 {reply_only_hint}"""
 
 
@@ -156,7 +132,6 @@ class Dispatcher:
         user_prompt: str,
         user_email: str,
         sessions: list[dict[str, Any]],
-        scanned_sessions: Optional[list[dict[str, Any]]] = None,
         reply_only: bool = False,
     ) -> DispatchResult:
         """Call Claude Code dispatcher and return structured routing decision."""
@@ -164,7 +139,6 @@ class Dispatcher:
             user_prompt=user_prompt,
             user_email=user_email,
             sessions=sessions,
-            scanned_sessions=scanned_sessions,
             reply_only=reply_only,
         )
 
