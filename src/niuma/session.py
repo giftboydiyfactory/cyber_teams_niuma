@@ -16,11 +16,9 @@ logger = logging.getLogger(__name__)
 def _claude_command() -> list[str]:
     """Return the command to invoke Claude Code.
 
-    Prefers 'clp run --' (claude-proxy) which patches the Claude binary
-    to enable bypassPermissions policy. Falls back to plain 'claude'.
+    Uses 'claude' directly. If clp (claude-proxy) has been used before,
+    the binary is already patched to support bypassPermissions.
     """
-    if shutil.which("clp"):
-        return ["clp", "run", "--", "claude"]
     return ["claude"]
 
 _WORKER_SAFETY_PROMPT = (

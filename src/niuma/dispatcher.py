@@ -133,9 +133,8 @@ class Dispatcher:
             sessions=sessions,
         )
 
-        claude_cmd = ["clp", "run", "--", "claude"] if shutil.which("clp") else ["claude"]
         proc = await asyncio.create_subprocess_exec(
-            *claude_cmd, "-p", prompt,
+            "claude", "-p", prompt,
             "--model", self._config.dispatcher_model,
             "--json-schema", _DISPATCH_SCHEMA,
             "--system-prompt", _DISPATCHER_SYSTEM_PROMPT,
