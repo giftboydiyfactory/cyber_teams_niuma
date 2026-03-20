@@ -30,6 +30,8 @@ THREE possible actions:
 
 IMPORTANT: When in doubt between "reply" and "new", choose "new". The worker session has full Claude Code capabilities (file access, shell, tools). You do NOT. Only use "reply" for truly trivial questions.
 
+For "new" actions, set "dedicated_chat" to true ONLY for complex, long-running tasks that will produce lots of output (code review, deep analysis, multi-step projects). Simple commands (ls, echo, quick checks) should set it to false — their results go directly to the main chat.
+
 Return ONLY valid JSON matching the required schema. No other text.\
 """
 
@@ -42,6 +44,7 @@ _DISPATCH_SCHEMA = json.dumps({
         "cwd": {"type": "string"},
         "reply_text": {"type": "string"},
         "model": {"type": "string"},
+        "dedicated_chat": {"type": "boolean"},
     },
     "required": ["action"],
 })
@@ -99,6 +102,7 @@ class DispatchResult:
     cwd: Optional[str] = None
     reply_text: Optional[str] = None
     model: Optional[str] = None
+    dedicated_chat: bool = False
 
     @classmethod
     def from_claude_output(cls, raw_output: str) -> "DispatchResult":
@@ -119,6 +123,7 @@ class DispatchResult:
             cwd=inner.get("cwd"),
             reply_text=inner.get("reply_text"),
             model=inner.get("model"),
+            dedicated_chat=inner.get("dedicated_chat", False),
         )
 
 

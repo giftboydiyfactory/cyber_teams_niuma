@@ -251,31 +251,32 @@ class NiumaBot:
                 trigger_message_id=reply_to,
             )
             sid = session["id"]
-
-            # Try to create a dedicated session chat
             session_chat_id = None
-            try:
-                prompt_preview = (dispatch.prompt or "")[:50]
-                chat_info = create_session_chat(
-                    session_id=sid,
-                    topic=prompt_preview,
-                    user_email=user_email,
-                )
-                session_chat_id = chat_info["chat_id"]
-                await self._db.update_session(sid, session_chat_id=session_chat_id)
 
-                # Notify main chat with link
-                web_url = chat_info["web_url"]
-                await self._responder.send_text(
-                    chat_id,
-                    f"🚀 session [{sid}] started → [open session chat]({web_url})",
-                    reply_to=reply_to,
-                )
-                # Send processing to session chat
-                await self._responder.send_processing(session_chat_id, sid)
-            except Exception as e:
-                logger.warning("Failed to create session chat: %s. Using main chat.", e)
-                session_chat_id = None
+            # Only create dedicated chat for complex tasks
+            if dispatch.dedicated_chat:
+                try:
+                    prompt_preview = (dispatch.prompt or "")[:50]
+                    chat_info = create_session_chat(
+                        session_id=sid,
+                        topic=prompt_preview,
+                        user_email=user_email,
+                    )
+                    session_chat_id = chat_info["chat_id"]
+                    await self._db.update_session(sid, session_chat_id=session_chat_id)
+
+                    web_url = chat_info["web_url"]
+                    await self._responder.send_text(
+                        chat_id,
+                        f"🚀 session [{sid}] started → [open session chat]({web_url})",
+                        reply_to=reply_to,
+                    )
+                    await self._responder.send_processing(session_chat_id, sid)
+                except Exception as e:
+                    logger.warning("Failed to create session chat: %s. Using main chat.", e)
+                    session_chat_id = None
+
+            if not session_chat_id:
                 await self._responder.send_processing(chat_id, sid, reply_to=reply_to)
 
             # Watch session — send results to session chat if available, else main chat
