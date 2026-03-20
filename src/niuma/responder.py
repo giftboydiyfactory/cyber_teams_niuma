@@ -118,21 +118,16 @@ class Responder:
         self, chat_id: str, html_body: str,
         reply_to: Optional[str] = None,
     ) -> None:
-        """Send an HTML message to a Teams chat, optionally as a thread reply."""
+        """Send an HTML message to a Teams chat.
+
+        Note: Teams chat API does not support thread replies (only channel messages do).
+        The reply_to parameter is accepted but currently unused — kept for future
+        channel support.
+        """
         env = {**os.environ, "READ_WRITE_MODE": "1"}
-        if reply_to:
-            cmd = [
-                "teams-cli", "chat", "reply", chat_id,
-                "--reply-to", reply_to,
-                "--html", "--body", html_body,
-            ]
-        else:
-            cmd = [
-                "teams-cli", "chat", "send", chat_id,
-                "--html", "--body", html_body,
-            ]
         proc = await asyncio.create_subprocess_exec(
-            *cmd,
+            "teams-cli", "chat", "send", chat_id,
+            "--html", "--body", html_body,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
@@ -143,11 +138,6 @@ class Responder:
                 "Failed to send Teams message (exit %d): %s",
                 proc.returncode, stderr.decode().strip()[:200],
             )
-            # Fallback: if reply fails, try sending as new message
-            if reply_to:
-                logger.info("Falling back to send (no thread)")
-                await self.send(chat_id, html_body)
-                return
             raise RuntimeError(f"teams-cli send failed: {stderr.decode().strip()}")
 
     async def send_processing(
