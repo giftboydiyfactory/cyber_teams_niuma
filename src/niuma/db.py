@@ -149,6 +149,41 @@ class Database:
         )
         return [dict(r) for r in await cursor.fetchall()]
 
+    async def get_session_by_claude_id(self, claude_session: str) -> Optional[dict[str, Any]]:
+        """Find a session by its claude session UUID (or prefix)."""
+        cursor = await self._conn.execute(
+            "SELECT * FROM sessions WHERE claude_session LIKE ?",
+            (claude_session + "%",),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def import_session(
+        self,
+        *,
+        claude_session: str,
+        chat_id: str,
+        created_by: str,
+        prompt: str,
+        cwd: str,
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        """Import an external Claude session into niuma DB."""
+        # Check if already imported
+        existing = await self.get_session_by_claude_id(claude_session)
+        if existing:
+            return existing
+
+        now = time.time()
+        sid = _short_id()
+        await self._conn.execute(
+            """INSERT INTO sessions (id, claude_session, chat_id, created_by, status, prompt, cwd, model, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?)""",
+            (sid, claude_session, chat_id, created_by, status, prompt, cwd, now, now),
+        )
+        await self._conn.commit()
+        return dict(await self._get_row("sessions", sid))
+
     async def _get_row(self, table: str, row_id: str) -> Optional[aiosqlite.Row]:
         cursor = await self._conn.execute(
             f"SELECT * FROM {table} WHERE id = ?", (row_id,)

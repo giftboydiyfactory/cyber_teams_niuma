@@ -31,6 +31,10 @@ You must decide:
    -> Return action "status" with session_id if specific, or "list" if asking about all.
 5. Does the user want to stop a session?
    -> Return action "stop" with the session_id.
+6. Does the user want to see ALL Claude Code sessions across all directories (not just niuma sessions)?
+   -> Return action "scan_all".
+7. Does the user want to import/resume an external Claude session (by UUID or partial ID)?
+   -> Return action "import" with session_id set to the claude session UUID (or prefix).
 
 Return ONLY valid JSON matching the required schema. No other text.\
 """
@@ -38,7 +42,7 @@ Return ONLY valid JSON matching the required schema. No other text.\
 _DISPATCH_SCHEMA = json.dumps({
     "type": "object",
     "properties": {
-        "action": {"enum": ["new", "resume", "reply", "status", "stop", "list"]},
+        "action": {"enum": ["new", "resume", "reply", "status", "stop", "list", "scan_all", "import"]},
         "session_id": {"type": "string"},
         "prompt": {"type": "string"},
         "cwd": {"type": "string"},
