@@ -49,6 +49,7 @@ class SessionManager:
         prompt: str,
         cwd: Optional[str] = None,
         model: Optional[str] = None,
+        trigger_message_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Start a new Claude Code worker session."""
         if self.active_count >= self._config.max_concurrent:
@@ -65,6 +66,7 @@ class SessionManager:
             prompt=prompt,
             cwd=work_dir,
             model=work_model,
+            trigger_message_id=trigger_message_id,
         )
         sid = session["id"]
 

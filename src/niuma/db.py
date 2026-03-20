@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     prompt          TEXT,
     last_output     TEXT,
     cost_usd        REAL DEFAULT 0,
+    trigger_message_id TEXT,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL
 );
@@ -75,13 +76,14 @@ class Database:
         prompt: str,
         cwd: str,
         model: str,
+        trigger_message_id: Optional[str] = None,
     ) -> dict[str, Any]:
         now = time.time()
         sid = _short_id()
         await self._conn.execute(
-            """INSERT INTO sessions (id, chat_id, created_by, status, prompt, cwd, model, created_at, updated_at)
-               VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)""",
-            (sid, chat_id, created_by, prompt, cwd, model, now, now),
+            """INSERT INTO sessions (id, chat_id, created_by, status, prompt, cwd, model, trigger_message_id, created_at, updated_at)
+               VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)""",
+            (sid, chat_id, created_by, prompt, cwd, model, trigger_message_id, now, now),
         )
         await self._conn.commit()
         return dict(await self._get_row("sessions", sid))

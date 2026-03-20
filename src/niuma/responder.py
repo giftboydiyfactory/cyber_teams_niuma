@@ -114,12 +114,25 @@ class Responder:
     def __init__(self, output_dir: str = "~/.niuma/outputs") -> None:
         self._output_dir = str(Path(output_dir).expanduser())
 
-    async def send(self, chat_id: str, html_body: str) -> None:
-        """Send an HTML message to a Teams chat."""
+    async def send(
+        self, chat_id: str, html_body: str,
+        reply_to: Optional[str] = None,
+    ) -> None:
+        """Send an HTML message to a Teams chat, optionally as a thread reply."""
         env = {**os.environ, "READ_WRITE_MODE": "1"}
+        if reply_to:
+            cmd = [
+                "teams-cli", "chat", "reply", chat_id,
+                "--reply-to", reply_to,
+                "--html", "--body", html_body,
+            ]
+        else:
+            cmd = [
+                "teams-cli", "chat", "send", chat_id,
+                "--html", "--body", html_body,
+            ]
         proc = await asyncio.create_subprocess_exec(
-            "teams-cli", "chat", "send", chat_id,
-            "--html", "--body", html_body,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
@@ -130,27 +143,43 @@ class Responder:
                 "Failed to send Teams message (exit %d): %s",
                 proc.returncode, stderr.decode().strip()[:200],
             )
+            # Fallback: if reply fails, try sending as new message
+            if reply_to:
+                logger.info("Falling back to send (no thread)")
+                await self.send(chat_id, html_body)
+                return
             raise RuntimeError(f"teams-cli send failed: {stderr.decode().strip()}")
 
-    async def send_processing(self, chat_id: str, session_id: str) -> None:
-        await self.send(chat_id, format_processing(session_id))
+    async def send_processing(
+        self, chat_id: str, session_id: str,
+        reply_to: Optional[str] = None,
+    ) -> None:
+        await self.send(chat_id, format_processing(session_id), reply_to=reply_to)
 
     async def send_result(
         self, chat_id: str, session_id: str,
         result: Optional[str] = None, error: Optional[str] = None,
+        reply_to: Optional[str] = None,
     ) -> None:
         html = format_result(session_id, result, error, self._output_dir)
-        await self.send(chat_id, html)
+        await self.send(chat_id, html, reply_to=reply_to)
 
-    async def send_status(self, chat_id: str, session: dict[str, Any]) -> None:
-        await self.send(chat_id, format_status(session))
+    async def send_status(
+        self, chat_id: str, session: dict[str, Any],
+        reply_to: Optional[str] = None,
+    ) -> None:
+        await self.send(chat_id, format_status(session), reply_to=reply_to)
 
     async def send_session_list(
-        self, chat_id: str, sessions: list[dict[str, Any]]
+        self, chat_id: str, sessions: list[dict[str, Any]],
+        reply_to: Optional[str] = None,
     ) -> None:
-        await self.send(chat_id, format_session_list(sessions))
+        await self.send(chat_id, format_session_list(sessions), reply_to=reply_to)
 
-    async def send_text(self, chat_id: str, text: str) -> None:
+    async def send_text(
+        self, chat_id: str, text: str,
+        reply_to: Optional[str] = None,
+    ) -> None:
         body_html = _md_to_html(text)
         html = f"{body_html}{_SIGNATURE}"
-        await self.send(chat_id, html)
+        await self.send(chat_id, html, reply_to=reply_to)
