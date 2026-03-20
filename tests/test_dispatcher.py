@@ -29,7 +29,7 @@ def test_build_dispatcher_prompt_no_sessions() -> None:
         user_email="jack@n.com",
         sessions=[],
     )
-    assert "No active sessions" in prompt
+    assert "No known sessions" in prompt
     assert "analyze this repo" in prompt
 
 

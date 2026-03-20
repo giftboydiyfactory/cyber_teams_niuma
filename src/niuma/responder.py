@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+import markdown
+
 logger = logging.getLogger(__name__)
 
 _SIGNATURE = "<hr/><p><em>Sent via Claude Code (ai-pim-utils)</em></p>"
@@ -32,13 +34,14 @@ def format_result(
 
     text = result or ""
     if len(text) <= _MAX_BODY_LEN:
+        body_html = _md_to_html(text)
         return (
-            f"<p>session [<b>{session_id}</b>] done</p>"
-            f"<p>{_escape(text)}</p>"
+            f"<p><b>session [{session_id}] done</b></p>"
+            f"{body_html}"
             f"{_SIGNATURE}"
         )
 
-    summary = text[:_MAX_BODY_LEN]
+    # Save full output, send truncated
     saved_path = ""
     if output_dir:
         out_dir = Path(output_dir)
@@ -47,15 +50,17 @@ def format_result(
         out_file.write_text(text)
         saved_path = str(out_file)
 
+    summary = text[:_MAX_BODY_LEN]
+    body_html = _md_to_html(summary)
     truncated_note = (
         f" Full output saved to <code>{saved_path}</code>"
         if saved_path else " (output truncated)"
     )
 
     return (
-        f"<p>session [<b>{session_id}</b>] done</p>"
-        f"<p>{_escape(summary)}...</p>"
-        f"<p><em>{truncated_note}</em></p>"
+        f"<p><b>session [{session_id}] done</b></p>"
+        f"{body_html}"
+        f"<p><em>...{truncated_note}</em></p>"
         f"{_SIGNATURE}"
     )
 
@@ -95,6 +100,14 @@ def format_session_list(sessions: list[dict[str, Any]]) -> str:
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _md_to_html(text: str) -> str:
+    """Convert Markdown text to HTML for Teams rendering."""
+    return markdown.markdown(
+        text,
+        extensions=["tables", "fenced_code", "nl2br"],
+    )
 
 
 class Responder:
@@ -138,5 +151,6 @@ class Responder:
         await self.send(chat_id, format_session_list(sessions))
 
     async def send_text(self, chat_id: str, text: str) -> None:
-        html = f"<p>{_escape(text)}</p>{_SIGNATURE}"
+        body_html = _md_to_html(text)
+        html = f"{body_html}{_SIGNATURE}"
         await self.send(chat_id, html)

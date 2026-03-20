@@ -100,21 +100,27 @@ class Poller:
     ) -> list[TeamsMessage]:
         """Return messages newer than last_seen_id.
 
-        Assumes messages are ordered oldest-first by the API.
+        Teams message IDs are numeric timestamps (milliseconds).
+        Messages may be in any order from the API. We compare IDs
+        numerically to determine which are newer.
         If last_seen_id is None, return all messages.
         """
         if last_seen_id is None:
             return messages
 
-        found = False
-        new_messages = []
-        for msg in messages:
-            if found:
-                new_messages.append(msg)
-            elif msg.id == last_seen_id:
-                found = True
-
-        return new_messages
+        try:
+            last_seen_num = int(last_seen_id)
+            return [m for m in messages if int(m.id) > last_seen_num]
+        except ValueError:
+            # Fallback for non-numeric IDs: positional search
+            found = False
+            new_messages = []
+            for msg in messages:
+                if found:
+                    new_messages.append(msg)
+                elif msg.id == last_seen_id:
+                    found = True
+            return new_messages
 
 
 def _strip_html(text: str) -> str:

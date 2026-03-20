@@ -99,9 +99,14 @@ class NiumaBot:
         triggered = self._poller.filter_triggered(messages)
         new_messages = self._poller.filter_new(triggered, last_seen)
 
+        # Find the newest message ID (messages may be newest-first from API)
+        try:
+            newest_id = max(messages, key=lambda m: int(m.id)).id
+        except ValueError:
+            newest_id = messages[0].id
+
         if not new_messages:
-            if messages:
-                await self._db.set_poll_state(chat_id, messages[-1].id)
+            await self._db.set_poll_state(chat_id, newest_id)
             return
 
         for msg in new_messages:
@@ -118,7 +123,7 @@ class NiumaBot:
 
             await self._handle_message(chat_id, msg.sender_email, prompt)
 
-        await self._db.set_poll_state(chat_id, messages[-1].id)
+        await self._db.set_poll_state(chat_id, newest_id)
 
     async def _handle_message(
         self, chat_id: str, user_email: str, prompt: str

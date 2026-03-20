@@ -58,19 +58,25 @@ def build_dispatcher_prompt(
     if sessions:
         session_lines = []
         for s in sessions:
+            last_output_preview = ""
+            if s.get("last_output"):
+                last_output_preview = f' last_result="{s["last_output"][:120]}..."'
             session_lines.append(
                 f"  - [{s['id']}] status={s['status']} by={s['created_by']} "
-                f"cwd={s.get('cwd', 'N/A')} prompt=\"{s['prompt'][:80]}\""
+                f"cwd={s.get('cwd', 'N/A')} prompt=\"{s['prompt'][:120]}\""
+                f"{last_output_preview}"
             )
-        sessions_text = "Active sessions:\n" + "\n".join(session_lines)
+        sessions_text = "Known sessions:\n" + "\n".join(session_lines)
     else:
-        sessions_text = "No active sessions."
+        sessions_text = "No known sessions."
 
     return f"""\
 User: {user_email}
 Message: {user_prompt}
 
-{sessions_text}"""
+{sessions_text}
+
+IMPORTANT: If the user refers to a previous task (e.g. "刚才那个", "continue", "接着上次"), match it to an existing session and use action "resume" with that session_id. Only use "new" if the user is clearly requesting something unrelated to any existing session."""
 
 
 @dataclass(frozen=True)
