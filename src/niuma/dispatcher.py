@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -132,8 +133,9 @@ class Dispatcher:
             sessions=sessions,
         )
 
+        claude_cmd = ["clp", "run", "--", "claude"] if shutil.which("clp") else ["claude"]
         proc = await asyncio.create_subprocess_exec(
-            "claude", "-p", prompt,
+            *claude_cmd, "-p", prompt,
             "--model", self._config.dispatcher_model,
             "--json-schema", _DISPATCH_SCHEMA,
             "--system-prompt", _DISPATCHER_SYSTEM_PROMPT,

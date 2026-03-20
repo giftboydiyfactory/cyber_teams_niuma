@@ -4,12 +4,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 from typing import Any, Optional
 
 from niuma.config import ClaudeConfig
 from niuma.db import Database
 
 logger = logging.getLogger(__name__)
+
+
+def _claude_command() -> list[str]:
+    """Return the command to invoke Claude Code.
+
+    Prefers 'clp run --' (claude-proxy) which patches the Claude binary
+    to enable bypassPermissions policy. Falls back to plain 'claude'.
+    """
+    if shutil.which("clp"):
+        return ["clp", "run", "--", "claude"]
+    return ["claude"]
 
 _WORKER_SAFETY_PROMPT = (
     "You are a Claude Code worker session managed by niuma-bot. "
@@ -61,11 +73,12 @@ class SessionManager:
         await self._db.add_message(sid, "user", prompt)
         await self._db.update_session(sid, status="running")
 
+        claude_cmd = _claude_command()
         proc = await asyncio.create_subprocess_exec(
-            "claude", "-p", prompt,
+            *claude_cmd, "-p", prompt,
             "--output-format", "json",
             "--name", f"niuma-{created_by.split('@')[0]}-{sid}",
-            "--dangerously-skip-permissions",
+            "--permission-mode", self._config.permission_mode,
             "--model", work_model,
             "--add-dir", work_dir,
             "--append-system-prompt", _WORKER_SAFETY_PROMPT,
@@ -110,11 +123,12 @@ class SessionManager:
         await self._db.add_message(session_id, "user", prompt)
         await self._db.update_session(session_id, status="running")
 
+        claude_cmd = _claude_command()
         proc = await asyncio.create_subprocess_exec(
-            "claude", "-p", prompt,
+            *claude_cmd, "-p", prompt,
             "--resume", claude_session_id,
             "--output-format", "json",
-            "--dangerously-skip-permissions",
+            "--permission-mode", self._config.permission_mode,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
