@@ -26,7 +26,15 @@ _WORKER_SAFETY_PROMPT = (
     "Execute the user's request thoroughly. "
     "SAFETY: Do NOT execute destructive commands (rm -rf, git push --force, "
     "DROP TABLE, etc.) unless the user explicitly requests it. "
-    "Always prefer safe, reversible operations."
+    "Always prefer safe, reversible operations.\n\n"
+    "NIUMA CONTEXT: You have access to the niuma-bot infrastructure:\n"
+    "- niuma DB: ~/.niuma/niuma.db (SQLite, tables: sessions, messages, poll_state)\n"
+    "- Claude session history: ~/.claude/projects/*/  (JSONL files per session)\n"
+    "- niuma-bot source: /home/scratch.jackeyw_mobile_1/cyber_teams_niuma/src/niuma/\n"
+    "- teams-cli: can read/send Teams messages (use READ_WRITE_MODE=1 for sends)\n"
+    "- Graph API token: ~/.ai-pim-utils/token-cache-ai-pim-utils (for creating chats etc)\n"
+    "When asked to manage sessions, scan history, create groups, import sessions, etc. "
+    "you can directly access these resources."
 )
 
 
