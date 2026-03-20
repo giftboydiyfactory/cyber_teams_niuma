@@ -83,19 +83,31 @@ def load_config(path: Path) -> NiumaConfig:
     storage_raw = _require(raw, "storage", "root")
     logging_raw = _require(raw, "logging", "root")
 
+    poll_interval = teams_raw.get("poll_interval", 60)
+    if poll_interval < 5:
+        raise ConfigError("teams.poll_interval must be >= 5 seconds")
+
+    max_concurrent = claude_raw.get("max_concurrent", 5)
+    if max_concurrent < 1:
+        raise ConfigError("claude.max_concurrent must be >= 1")
+
+    session_timeout = claude_raw.get("session_timeout", 86400)
+    if session_timeout < 60:
+        raise ConfigError("claude.session_timeout must be >= 60 seconds")
+
     return NiumaConfig(
         teams=TeamsConfig(
             chat_ids=_require(teams_raw, "chat_ids", "teams"),
             trigger=teams_raw.get("trigger", "@niuma"),
-            poll_interval=teams_raw.get("poll_interval", 60),
+            poll_interval=poll_interval,
             reply_only_chat_ids=teams_raw.get("reply_only_chat_ids", []),
             auto_session_chats=teams_raw.get("auto_session_chats", True),
         ),
         claude=ClaudeConfig(
             dispatcher_model=claude_raw.get("dispatcher_model", "sonnet"),
             worker_model=claude_raw.get("worker_model", "sonnet"),
-            max_concurrent=claude_raw.get("max_concurrent", 5),
-            session_timeout=claude_raw.get("session_timeout", 86400),
+            max_concurrent=max_concurrent,
+            session_timeout=session_timeout,
             permission_mode=claude_raw.get("permission_mode", "auto"),
             default_cwd=_expand_path(claude_raw.get("default_cwd", "~")),
         ),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import re
@@ -136,6 +137,6 @@ def _strip_html(text: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     # Remove remaining HTML tags
     text = re.sub(r"<[^>]+>", "", text)
-    # Clean up &nbsp; and other entities
-    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    # Decode HTML entities (handles &nbsp;, &amp;, &lt;, &gt;, and all others)
+    text = html.unescape(text).replace("\xa0", " ")
     return text.strip()

@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import shutil
 from typing import Any, Optional
 
 from niuma.config import ClaudeConfig
@@ -32,7 +31,6 @@ _WORKER_SAFETY_PROMPT = (
     "- Claude session history: ~/.claude/projects/*/  (JSONL files per session)\n"
     "- niuma-bot source: /home/scratch.jackeyw_mobile_1/cyber_teams_niuma/src/niuma/\n"
     "- teams-cli: can read/send Teams messages (use READ_WRITE_MODE=1 for sends)\n"
-    "- Graph API token: ~/.ai-pim-utils/token-cache-ai-pim-utils (for creating chats etc)\n"
     "When asked to manage sessions, scan history, create groups, import sessions, etc. "
     "you can directly access these resources."
 )
@@ -44,6 +42,7 @@ class SessionManager:
         self._db = db
         self._active: dict[str, asyncio.subprocess.Process] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._resume_locks: dict[str, asyncio.Lock] = {}
 
     @property
     def active_count(self) -> int:
@@ -109,6 +108,18 @@ class SessionManager:
         prompt: str,
     ) -> dict[str, Any]:
         """Resume an existing Claude Code session with a follow-up prompt."""
+        if session_id not in self._resume_locks:
+            self._resume_locks[session_id] = asyncio.Lock()
+        async with self._resume_locks[session_id]:
+            return await self._resume_session_locked(session_id=session_id, prompt=prompt)
+
+    async def _resume_session_locked(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+    ) -> dict[str, Any]:
+        """Internal resume implementation, must be called under per-session lock."""
         session = await self._db.get_session(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -164,8 +175,11 @@ class SessionManager:
         return await self._db.get_session(session_id)
 
     async def list_active(self) -> list[dict[str, Any]]:
-        """List all non-terminal sessions."""
-        return await self._db.list_sessions()
+        """List running, pending, and recently completed sessions."""
+        running = await self._db.list_sessions(status="running")
+        pending = await self._db.list_sessions(status="pending")
+        completed = await self._db.list_sessions(status="completed")
+        return running + pending + completed
 
     async def _wait_for_completion(
         self, session_id: str, proc: asyncio.subprocess.Process

@@ -16,7 +16,7 @@ _MAX_BODY_LEN = 2000
 
 
 def format_processing(session_id: str) -> str:
-    return f"<p>session [<b>{session_id}</b>] processing...</p>{_SIGNATURE}"
+    return f"<p>session [<b>{_escape(session_id)}</b>] processing...</p>{_SIGNATURE}"
 
 
 def format_result(
@@ -25,9 +25,10 @@ def format_result(
     error: Optional[str] = None,
     output_dir: Optional[str] = None,
 ) -> str:
+    safe_sid = _escape(session_id)
     if error:
         return (
-            f"<p>session [<b>{session_id}</b>] failed</p>"
+            f"<p>session [<b>{safe_sid}</b>] failed</p>"
             f"<p><code>{_escape(error[:500])}</code></p>"
             f"{_SIGNATURE}"
         )
@@ -36,7 +37,7 @@ def format_result(
     if len(text) <= _MAX_BODY_LEN:
         body_html = _md_to_html(text)
         return (
-            f"<p><b>session [{session_id}] done</b></p>"
+            f"<p><b>session [{safe_sid}] done</b></p>"
             f"{body_html}"
             f"{_SIGNATURE}"
         )
@@ -58,7 +59,7 @@ def format_result(
     )
 
     return (
-        f"<p><b>session [{session_id}] done</b></p>"
+        f"<p><b>session [{safe_sid}] done</b></p>"
         f"{body_html}"
         f"<p><em>...{truncated_note}</em></p>"
         f"{_SIGNATURE}"

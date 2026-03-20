@@ -2,6 +2,7 @@
 """Direct Microsoft Graph API calls for Teams operations not supported by teams-cli."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import urllib.request
@@ -31,8 +32,8 @@ def _get_access_token() -> str:
     raise RuntimeError("No valid access token found. Run 'teams-cli auth login' to refresh.")
 
 
-def _graph_post(endpoint: str, body: dict[str, Any]) -> dict[str, Any]:
-    """Make a POST request to Microsoft Graph API."""
+def _graph_post_sync(endpoint: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Make a POST request to Microsoft Graph API (synchronous, run via asyncio.to_thread)."""
     token = _get_access_token()
     url = f"https://graph.microsoft.com/v1.0{endpoint}"
     data = json.dumps(body).encode()
@@ -50,27 +51,33 @@ def _graph_post(endpoint: str, body: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"Graph API error {e.code}: {error_body}")
 
 
+def _get_me_sync() -> dict[str, Any]:
+    """Fetch current user info from Graph API (synchronous, run via asyncio.to_thread)."""
+    token = _get_access_token()
+    req = urllib.request.Request("https://graph.microsoft.com/v1.0/me")
+    req.add_header("Authorization", f"Bearer {token}")
+    return json.loads(urllib.request.urlopen(req).read())
+
+
 def create_session_chat(
     *,
     session_id: str,
     topic: str,
     user_email: str,
 ) -> dict[str, str]:
-    """Create a dedicated group chat for a niuma session.
+    """Create a dedicated group chat for a niuma session (synchronous).
 
     Returns dict with 'chat_id' and 'web_url'.
+    Call via asyncio.to_thread() from async contexts.
     """
     chat_topic = f"niuma [{session_id}] {topic[:50]}"
 
     # Use 'me' endpoint to get current user's ID for self-chats
     # when user_email might be a displayName instead of email
-    token = _get_access_token()
-    req = urllib.request.Request("https://graph.microsoft.com/v1.0/me")
-    req.add_header("Authorization", f"Bearer {token}")
-    me = json.loads(urllib.request.urlopen(req).read())
+    me = _get_me_sync()
     user_id = me["id"]
 
-    result = _graph_post("/chats", {
+    result = _graph_post_sync("/chats", {
         "chatType": "group",
         "topic": chat_topic,
         "members": [
@@ -87,3 +94,18 @@ def create_session_chat(
         "web_url": result.get("webUrl", ""),
         "topic": chat_topic,
     }
+
+
+async def create_session_chat_async(
+    *,
+    session_id: str,
+    topic: str,
+    user_email: str,
+) -> dict[str, str]:
+    """Async wrapper for create_session_chat using asyncio.to_thread."""
+    return await asyncio.to_thread(
+        create_session_chat,
+        session_id=session_id,
+        topic=topic,
+        user_email=user_email,
+    )

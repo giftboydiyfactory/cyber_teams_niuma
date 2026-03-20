@@ -13,7 +13,7 @@ from niuma.config import NiumaConfig, load_config, ConfigError
 from niuma.db import Database
 from niuma.dispatcher import Dispatcher, DispatchResult
 from niuma.poller import Poller
-from niuma.teams_api import create_session_chat
+from niuma.teams_api import create_session_chat_async as create_session_chat
 from niuma.responder import Responder
 from niuma.session import SessionManager
 
@@ -31,7 +31,15 @@ class NiumaBot:
         self._session_mgr: Optional[SessionManager] = None
         self._responder: Optional[Responder] = None
         self._running = False
-        self._backoff_seconds = 0
+        self._backoff_seconds: dict[str, int] = {}
+        self._background_tasks: set[asyncio.Task] = set()
+
+    def _fire_and_track(self, coro: "asyncio.Coroutine") -> asyncio.Task:
+        """Schedule a coroutine as a background task, keeping a strong reference."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     async def init(self) -> None:
         self._db = Database(self._config.storage.db_path)
@@ -77,16 +85,18 @@ class NiumaBot:
 
         try:
             raw = await self._poller.poll_chat(chat_id)
-            self._backoff_seconds = 0  # reset on success
+            self._backoff_seconds[chat_id] = 0  # reset on success
         except TeamsCliError as e:
             if e.exit_code == 5:  # rate limited
                 logger.warning("Rate limited on %s, backing off", chat_id)
-                await asyncio.sleep(min(self._backoff_seconds or 30, 300))
+                await asyncio.sleep(min(self._backoff_seconds.get(chat_id, 0) or 30, 300))
                 return
             elif e.exit_code == 7:  # network error
-                self._backoff_seconds = min((self._backoff_seconds or 1) * 2, 300)
-                logger.warning("Network error on %s, backoff %ds", chat_id, self._backoff_seconds)
-                await asyncio.sleep(self._backoff_seconds)
+                self._backoff_seconds[chat_id] = min(
+                    (self._backoff_seconds.get(chat_id, 0) or 1) * 2, 300
+                )
+                logger.warning("Network error on %s, backoff %ds", chat_id, self._backoff_seconds[chat_id])
+                await asyncio.sleep(self._backoff_seconds[chat_id])
                 return
             elif e.exit_code == 2:  # auth expired
                 logger.error("Auth expired for teams-cli, skipping cycle")
@@ -185,7 +195,7 @@ class NiumaBot:
                     session_id=sid, prompt=prompt,
                 )
                 await self._responder.send_processing(chat_id, sid)
-                asyncio.create_task(self._watch_session(chat_id, sid))
+                self._fire_and_track(self._watch_session(chat_id, sid))
             except (ValueError, RuntimeError) as e:
                 await self._responder.send_text(chat_id, str(e))
 
@@ -257,7 +267,7 @@ class NiumaBot:
             if dispatch.dedicated_chat:
                 try:
                     prompt_preview = (dispatch.prompt or "")[:50]
-                    chat_info = create_session_chat(
+                    chat_info = await create_session_chat(
                         session_id=sid,
                         topic=prompt_preview,
                         user_email=user_email,
@@ -281,7 +291,7 @@ class NiumaBot:
 
             # Watch session — send results to session chat if available, else main chat
             output_chat = session_chat_id or chat_id
-            asyncio.create_task(
+            self._fire_and_track(
                 self._watch_session(output_chat, sid, reply_to="" if session_chat_id else reply_to)
             )
         except RuntimeError as e:
@@ -304,6 +314,17 @@ class NiumaBot:
             )
             return
 
+        # Ownership/admin check: only the session owner or admins can resume
+        is_owner = session.get("created_by") == user_email
+        is_admin = user_email in self._config.security.admin_users
+        if not (is_owner or is_admin):
+            await self._responder.send_text(
+                chat_id,
+                f"Permission denied: session [{session['id']}] belongs to {session.get('created_by')}.",
+                reply_to=reply_to,
+            )
+            return
+
         actual_sid = session["id"]
         # Route output to session's dedicated chat if it has one
         session_chat_id = session.get("session_chat_id")
@@ -320,7 +341,7 @@ class NiumaBot:
                     reply_to=reply_to,
                 )
             await self._responder.send_processing(output_chat, actual_sid, reply_to=output_reply_to)
-            asyncio.create_task(self._watch_session(output_chat, actual_sid, output_reply_to))
+            self._fire_and_track(self._watch_session(output_chat, actual_sid, output_reply_to))
         except (ValueError, RuntimeError) as e:
             await self._responder.send_text(chat_id, str(e), reply_to=reply_to)
 
@@ -328,8 +349,12 @@ class NiumaBot:
         self, chat_id: str, session_id: str, reply_to: str = "",
     ) -> None:
         """Poll DB until session completes, then send result as thread reply."""
-        while True:
-            await asyncio.sleep(2)
+        max_wait = self._config.claude.session_timeout + 60
+        elapsed = 0
+        poll_interval = 2
+        while elapsed < max_wait:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
             session = await self._session_mgr.get_result(session_id)
             if not session:
                 return
@@ -409,7 +434,7 @@ def cli_entry() -> None:
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(
-                sig, lambda: asyncio.create_task(bot.shutdown())
+                sig, lambda s=sig: asyncio.create_task(bot.shutdown())
             )
         await bot.run()
 
@@ -423,4 +448,7 @@ def _daemonize() -> None:
     os.setsid()
     if os.fork() > 0:
         sys.exit(0)
-    sys.stdin = open(os.devnull)
+    devnull = open(os.devnull, "r+")
+    sys.stdin = devnull
+    sys.stdout = open(os.devnull, "w")
+    sys.stderr = open(os.devnull, "w")
