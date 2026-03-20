@@ -1,0 +1,29 @@
+# niuma-bot configuration
+# Copy to ~/.niuma/config.yaml and edit
+
+teams:
+  chat_ids:
+    - "19:your-chat-id@thread.v2"
+  trigger: "@niuma"
+  poll_interval: 60  # seconds
+
+claude:
+  dispatcher_model: "sonnet"
+  worker_model: "sonnet"
+  max_concurrent: 5
+  session_timeout: 86400  # 24 hours
+  permission_mode: "auto"
+  default_cwd: "~"
+
+security:
+  allowed_users:
+    - "you@nvidia.com"
+  admin_users:
+    - "you@nvidia.com"
+
+storage:
+  db_path: "~/.niuma/niuma.db"
+
+logging:
+  level: "INFO"
+  file: "~/.niuma/niuma.log"
