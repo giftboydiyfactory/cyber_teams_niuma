@@ -22,6 +22,7 @@ def sample_config(tmp_dir: Path) -> dict[str, Any]:
             "trigger": "@niuma",
             "poll_interval": 60,
             "reply_only_chat_ids": [],
+            "auto_session_chats": False,
         },
         "claude": {
             "dispatcher_model": "sonnet",

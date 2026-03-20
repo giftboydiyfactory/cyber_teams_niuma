@@ -14,6 +14,7 @@ from niuma.db import Database
 from niuma.dispatcher import Dispatcher, DispatchResult
 from niuma.poller import Poller
 from niuma.scanner import scan_all_sessions, scan_sessions_summary
+from niuma.teams_api import create_session_chat
 from niuma.responder import Responder
 from niuma.session import SessionManager
 
@@ -62,9 +63,15 @@ class NiumaBot:
             await asyncio.sleep(self._config.teams.poll_interval)
 
     async def poll_once(self) -> None:
-        """Single poll cycle across all configured chats."""
+        """Single poll cycle across all configured chats + session chats."""
         for chat_id in self._config.teams.chat_ids:
             await self._poll_chat(chat_id)
+
+        # Also poll session-dedicated chats
+        if self._config.teams.auto_session_chats:
+            session_chat_ids = await self._db.list_session_chat_ids()
+            for chat_id in session_chat_ids:
+                await self._poll_session_chat(chat_id)
 
     async def _poll_chat(self, chat_id: str) -> None:
         from niuma.poller import TeamsCliError
@@ -123,6 +130,65 @@ class NiumaBot:
                 continue
 
             await self._handle_message(chat_id, msg.sender_email, prompt, msg.id)
+
+        await self._db.set_poll_state(chat_id, newest_id)
+
+    async def _poll_session_chat(self, chat_id: str) -> None:
+        """Poll a session-dedicated chat. All messages auto-route to the bound session."""
+        from niuma.poller import TeamsCliError
+
+        try:
+            raw = await self._poller.poll_chat(chat_id)
+        except (TeamsCliError, RuntimeError):
+            return
+
+        messages = self._poller.parse_messages(raw)
+        if not messages:
+            return
+
+        last_seen = await self._db.get_poll_state(chat_id)
+
+        try:
+            newest_id = max(messages, key=lambda m: int(m.id)).id
+        except ValueError:
+            newest_id = messages[0].id
+
+        # Filter new messages (no trigger needed in session chats)
+        new_messages = self._poller.filter_new(messages, last_seen)
+        if not new_messages:
+            await self._db.set_poll_state(chat_id, newest_id)
+            return
+
+        # Find the bound session
+        session = await self._db.get_session_by_chat_id(chat_id)
+        if not session:
+            await self._db.set_poll_state(chat_id, newest_id)
+            return
+
+        for msg in new_messages:
+            if not self._is_allowed(msg.sender_email):
+                continue
+
+            # Skip bot's own messages (contain the signature)
+            if "Sent via Claude Code" in msg.body:
+                continue
+
+            prompt = msg.body.strip()
+            if not prompt:
+                continue
+
+            # Auto-resume the bound session
+            sid = session["id"]
+            logger.info("Session chat %s: routing to session [%s]", chat_id[:20], sid)
+
+            try:
+                await self._session_mgr.resume_session(
+                    session_id=sid, prompt=prompt,
+                )
+                await self._responder.send_processing(chat_id, sid)
+                asyncio.create_task(self._watch_session(chat_id, sid))
+            except (ValueError, RuntimeError) as e:
+                await self._responder.send_text(chat_id, str(e))
 
         await self._db.set_poll_state(chat_id, newest_id)
 
@@ -247,9 +313,38 @@ class NiumaBot:
                 model=dispatch.model,
                 trigger_message_id=reply_to,
             )
-            await self._responder.send_processing(chat_id, session["id"], reply_to=reply_to)
+            sid = session["id"]
+
+            # Try to create a dedicated session chat
+            session_chat_id = None
+            try:
+                prompt_preview = (dispatch.prompt or "")[:50]
+                chat_info = create_session_chat(
+                    session_id=sid,
+                    topic=prompt_preview,
+                    user_email=user_email,
+                )
+                session_chat_id = chat_info["chat_id"]
+                await self._db.update_session(sid, session_chat_id=session_chat_id)
+
+                # Notify main chat with link
+                web_url = chat_info["web_url"]
+                await self._responder.send_text(
+                    chat_id,
+                    f"🚀 session [{sid}] started → [open session chat]({web_url})",
+                    reply_to=reply_to,
+                )
+                # Send processing to session chat
+                await self._responder.send_processing(session_chat_id, sid)
+            except Exception as e:
+                logger.warning("Failed to create session chat: %s. Using main chat.", e)
+                session_chat_id = None
+                await self._responder.send_processing(chat_id, sid, reply_to=reply_to)
+
+            # Watch session — send results to session chat if available, else main chat
+            output_chat = session_chat_id or chat_id
             asyncio.create_task(
-                self._watch_session(chat_id, session["id"], reply_to)
+                self._watch_session(output_chat, sid, reply_to="" if session_chat_id else reply_to)
             )
         except RuntimeError as e:
             await self._responder.send_text(chat_id, str(e), reply_to=reply_to)
@@ -292,12 +387,22 @@ class NiumaBot:
             return
 
         actual_sid = session["id"]
+        # Route output to session's dedicated chat if it has one
+        session_chat_id = session.get("session_chat_id")
+        output_chat = session_chat_id or chat_id
+        output_reply_to = "" if session_chat_id else reply_to
+
         try:
             await self._session_mgr.resume_session(
                 session_id=actual_sid, prompt=dispatch.prompt or ""
             )
-            await self._responder.send_processing(chat_id, actual_sid, reply_to=reply_to)
-            asyncio.create_task(self._watch_session(chat_id, actual_sid, reply_to))
+            if session_chat_id:
+                await self._responder.send_text(
+                    chat_id, f"🔄 session [{actual_sid}] resuming → results in session chat",
+                    reply_to=reply_to,
+                )
+            await self._responder.send_processing(output_chat, actual_sid, reply_to=output_reply_to)
+            asyncio.create_task(self._watch_session(output_chat, actual_sid, output_reply_to))
         except (ValueError, RuntimeError) as e:
             await self._responder.send_text(chat_id, str(e), reply_to=reply_to)
 

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_output     TEXT,
     cost_usd        REAL DEFAULT 0,
     trigger_message_id TEXT,
+    session_chat_id TEXT,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL
 );
@@ -173,6 +174,23 @@ class Database:
             (session_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
+
+    async def get_session_by_chat_id(self, session_chat_id: str) -> Optional[dict[str, Any]]:
+        """Find the most recent session bound to a dedicated chat."""
+        cursor = await self._conn.execute(
+            "SELECT * FROM sessions WHERE session_chat_id = ? ORDER BY created_at DESC LIMIT 1",
+            (session_chat_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+    async def list_session_chat_ids(self) -> list[str]:
+        """Return all active session_chat_ids for polling."""
+        cursor = await self._conn.execute(
+            "SELECT DISTINCT session_chat_id FROM sessions WHERE session_chat_id IS NOT NULL"
+        )
+        rows = await cursor.fetchall()
+        return [r["session_chat_id"] for r in rows]
 
     async def get_session_by_claude_id(self, claude_session: str) -> Optional[dict[str, Any]]:
         """Find a session by its claude session UUID (or prefix)."""
