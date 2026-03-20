@@ -58,6 +58,7 @@ def build_dispatcher_prompt(
     user_prompt: str,
     user_email: str,
     sessions: list[dict[str, Any]],
+    scanned_sessions: Optional[list[dict[str, Any]]] = None,
     reply_only: bool = False,
 ) -> str:
     """Build the prompt sent to the dispatcher Claude session."""
@@ -76,6 +77,24 @@ def build_dispatcher_prompt(
         sessions_text = "Known sessions:\n" + "\n".join(session_lines)
     else:
         sessions_text = "No known sessions."
+
+    # Build scanned sessions text (Claude history not yet in DB)
+    if scanned_sessions:
+        # Exclude sessions already in DB
+        db_claude_ids = {s.get("claude_session", "") for s in sessions}
+        external = [s for s in scanned_sessions if s["claude_session"] not in db_claude_ids]
+        if external:
+            ext_lines = []
+            for s in external[:15]:
+                name = s.get("name") or s.get("first_user_msg", "")[:50] or "unnamed"
+                ext_lines.append(
+                    f"  - [{s['claude_session'][:12]}] name=\"{name}\" "
+                    f"turns={s['num_turns']} cwd={s['cwd']}"
+                )
+            sessions_text += (
+                "\n\nClaude history sessions (not yet imported, use action \"import\" with session_id to import+resume):\n"
+                + "\n".join(ext_lines)
+            )
 
     reply_only_hint = (
         "\n- REPLY-ONLY MODE: This chat is in reply-only mode. You MUST use action \"reply\" and answer the question directly. "
@@ -137,6 +156,7 @@ class Dispatcher:
         user_prompt: str,
         user_email: str,
         sessions: list[dict[str, Any]],
+        scanned_sessions: Optional[list[dict[str, Any]]] = None,
         reply_only: bool = False,
     ) -> DispatchResult:
         """Call Claude Code dispatcher and return structured routing decision."""
@@ -144,6 +164,7 @@ class Dispatcher:
             user_prompt=user_prompt,
             user_email=user_email,
             sessions=sessions,
+            scanned_sessions=scanned_sessions,
             reply_only=reply_only,
         )
 

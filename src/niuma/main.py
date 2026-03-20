@@ -139,10 +139,12 @@ class NiumaBot:
 
         try:
             sessions = await self._session_mgr.list_active()
+            scanned = scan_all_sessions()
             dispatch = await self._dispatcher.dispatch(
                 user_prompt=prompt,
                 user_email=user_email,
                 sessions=sessions,
+                scanned_sessions=scanned,
                 reply_only=reply_only,
             )
         except Exception:
