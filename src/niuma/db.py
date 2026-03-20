@@ -43,7 +43,19 @@ CREATE TABLE IF NOT EXISTS poll_state (
 
 
 def _short_id() -> str:
-    return secrets.token_hex(2)
+    """Generate a short, time-sortable session ID.
+
+    Format: MMDD-XX (date prefix + 2 random hex chars)
+    Examples: 0320-a7, 0320-f3, 0321-0b
+    - Date prefix makes IDs naturally sortable and human-readable
+    - Random suffix avoids collisions within the same day (256 possibilities)
+    - Total: ~93K unique IDs per year
+    """
+    import datetime
+    now = datetime.datetime.now()
+    date_prefix = now.strftime("%m%d")
+    random_suffix = secrets.token_hex(1)
+    return f"{date_prefix}-{random_suffix}"
 
 
 class Database:
@@ -80,7 +92,12 @@ class Database:
         trigger_message_id: Optional[str] = None,
     ) -> dict[str, Any]:
         now = time.time()
-        sid = _short_id()
+        # Retry on collision (up to 10 attempts)
+        for _ in range(10):
+            sid = _short_id()
+            existing = await self._get_row("sessions", sid)
+            if not existing:
+                break
         await self._conn.execute(
             """INSERT INTO sessions (id, chat_id, created_by, status, prompt, cwd, model, trigger_message_id, created_at, updated_at)
                VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)""",
@@ -218,7 +235,11 @@ class Database:
             return existing
 
         now = time.time()
-        sid = _short_id()
+        for _ in range(10):
+            sid = _short_id()
+            existing = await self._get_row("sessions", sid)
+            if not existing:
+                break
         await self._conn.execute(
             """INSERT INTO sessions (id, claude_session, chat_id, created_by, status, prompt, cwd, model, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?)""",

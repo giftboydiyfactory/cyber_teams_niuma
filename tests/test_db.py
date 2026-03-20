@@ -31,7 +31,7 @@ async def test_create_and_get_session(db: Database) -> None:
         cwd="/tmp",
         model="sonnet",
     )
-    assert len(session["id"]) == 4  # short ID
+    assert len(session["id"]) == 7  # format: MMDD-XX (e.g. "0320-a7")
     assert session["status"] == "pending"
 
     fetched = await db.get_session(session["id"])
