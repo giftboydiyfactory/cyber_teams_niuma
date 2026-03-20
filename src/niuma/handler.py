@@ -129,9 +129,30 @@ async def handle_resume(
         return
 
     session = await bot._db.get_session(sid)
+
+    # Auto-import from Claude history if not in DB
+    if not session:
+        from niuma.scanner import scan_all_sessions
+
+        all_scanned = scan_all_sessions()
+        match = None
+        for s in all_scanned:
+            if sid in s["claude_session"]:
+                match = s
+                break
+        if match:
+            session = await bot._db.import_session(
+                claude_session=match["claude_session"],
+                chat_id=chat_id,
+                created_by=user_email or "unknown",
+                prompt=match.get("last_user_msg") or match.get("name") or "imported",
+                cwd=match["cwd"],
+            )
+            logger.info("Auto-imported session %s -> [%s]", sid, session["id"])
+
     if not session:
         await bot._responder.send_text(
-            chat_id, f"Session {sid} not found.",
+            chat_id, f"Session {sid} not found in DB or Claude history.",
             reply_to=reply_to,
         )
         return
