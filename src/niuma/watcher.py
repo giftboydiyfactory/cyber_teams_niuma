@@ -29,6 +29,8 @@ async def watch_session(
     max_wait = bot._config.claude.session_timeout + 60
     elapsed = 0
     poll_interval = 2
+    heartbeat_interval = 120  # Send progress update every 2 minutes
+    last_heartbeat = 0
     while elapsed < max_wait:
         await asyncio.sleep(poll_interval)
         elapsed += poll_interval
@@ -36,6 +38,17 @@ async def watch_session(
         if not session:
             return
         status = session["status"]
+
+        # Send periodic heartbeat for long-running tasks
+        if status == "running" and (elapsed - last_heartbeat) >= heartbeat_interval:
+            last_heartbeat = elapsed
+            minutes = elapsed // 60
+            await bot._responder.send_text(
+                chat_id,
+                f"⏳ session [{session_id}] still working... ({minutes}m elapsed)",
+                reply_to=reply_to,
+            )
+
         if status in ("completed", "failed", "timeout"):
             result_text = session.get("last_output", "")
             error_text = None
