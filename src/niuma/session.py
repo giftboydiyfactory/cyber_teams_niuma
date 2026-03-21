@@ -16,11 +16,13 @@ def _claude_command() -> list[str]:
     """Return the command to invoke Claude Code.
 
     Uses 'clp run -- claude' to enable bypassPermissions via binary patching.
-    Falls back to plain 'claude' if clp is not available.
+    Falls back to plain 'claude' if clp/claude-proxy is not available.
     """
     import shutil
     if shutil.which("clp"):
         return ["clp", "run", "--", "claude"]
+    if shutil.which("claude-proxy"):
+        return ["claude-proxy", "run", "--", "claude"]
     return ["claude"]
 
 def _build_worker_safety_prompt(bot_name: str = "niuma") -> str:
