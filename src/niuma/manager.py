@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 from niuma.config import ClaudeConfig
-from niuma.session import _claude_command
 
 if TYPE_CHECKING:
     from niuma.db import Database
@@ -191,7 +190,9 @@ class Manager:
         """
         prompt = self._build_prompt(user_message, user_email, context)
 
-        claude_cmd = _claude_command()
+        # Manager uses plain 'claude' (no clp) — it only returns JSON decisions,
+        # doesn't need bypassPermissions. This avoids clp's heavy memory footprint.
+        claude_cmd = ["claude"]
         if self._session_id:
             # Resume existing Manager session
             proc = await asyncio.create_subprocess_exec(

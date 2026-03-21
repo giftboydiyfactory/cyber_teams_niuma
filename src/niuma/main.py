@@ -151,11 +151,14 @@ class NiumaBot:
             )
 
             # Add configured users as members of the manager chat
+            # Only add entries that look like email addresses (skip displayNames)
+            from niuma.teams_api import add_chat_member_async
             for email in self._config.security.admin_users + self._config.security.allowed_users:
-                if email == self._owner_email or email == self._owner_display_name:
+                if "@" not in email:
+                    continue  # Skip displayNames — not valid for Graph API
+                if email == self._owner_email:
                     continue  # Already the creator
                 try:
-                    from niuma.teams_api import add_chat_member_async
                     await add_chat_member_async(chat_id=self._manager_chat_id, user_email=email)
                     logger.info("Added %s to manager chat", email)
                 except Exception as e:
