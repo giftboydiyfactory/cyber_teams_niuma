@@ -141,7 +141,7 @@ def create_session_chat(
     Returns dict with 'chat_id' and 'web_url'.
     Call via asyncio.to_thread() from async contexts.
     """
-    chat_topic = f"niuma [{session_id}] {topic[:50]}"
+    chat_topic = topic
 
     # Use 'me' endpoint to get current user's ID for self-chats
     # when user_email might be a displayName instead of email
