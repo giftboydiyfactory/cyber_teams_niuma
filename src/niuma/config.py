@@ -85,7 +85,7 @@ def load_config(path: Path) -> NiumaConfig:
     if not isinstance(raw, dict):
         raise ConfigError("Config file must be a YAML mapping")
 
-    teams_raw = _require(raw, "teams", "root")
+    teams_raw = raw.get("teams", {})
     claude_raw = _require(raw, "claude", "root")
     security_raw = _require(raw, "security", "root")
     storage_raw = _require(raw, "storage", "root")
@@ -118,7 +118,7 @@ def load_config(path: Path) -> NiumaConfig:
             emoji=bot_emoji,
         ),
         teams=TeamsConfig(
-            chat_ids=_require(teams_raw, "chat_ids", "teams"),
+            chat_ids=teams_raw.get("chat_ids", []),
             trigger=teams_trigger,
             poll_interval=poll_interval,
             reply_only_chat_ids=teams_raw.get("reply_only_chat_ids", []),

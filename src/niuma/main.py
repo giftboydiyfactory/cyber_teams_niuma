@@ -351,7 +351,7 @@ class NiumaBot:
 
             # Issue 4: Skip bot's own messages (check both raw body and signature).
             # parse_messages already strips HTML, so the check on msg.body is correct.
-            if "ai-pim-utils" in msg.body:
+            if "ai-pim-utils" in msg.body or "Sent by" in msg.body:
                 continue
 
             prompt = msg.body.strip()
@@ -407,7 +407,7 @@ class NiumaBot:
         for msg in new_messages:
             if not self._is_allowed(msg.sender_email):
                 continue
-            if "ai-pim-utils" in msg.body:
+            if "ai-pim-utils" in msg.body or "Sent by" in msg.body:
                 continue
             prompt = msg.body.strip()
             if not prompt:
@@ -444,6 +444,8 @@ class NiumaBot:
         return (
             email in self._config.security.allowed_users
             or email in self._config.security.admin_users
+            or (self._owner_email and email == self._owner_email)
+            or (self._owner_display_name and email == self._owner_display_name)
         )
 
 
