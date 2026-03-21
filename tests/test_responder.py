@@ -10,7 +10,7 @@ def test_format_result_short() -> None:
     html = format_result(session_id="a3f7", result="Analysis complete.")
     assert "a3f7" in html
     assert "Analysis complete." in html
-    assert "ai-pim-utils" in html
+    assert "niuma-bot" in html
 
 
 def test_format_result_truncated() -> None:

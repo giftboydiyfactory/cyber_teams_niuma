@@ -56,7 +56,7 @@ class NiumaBot:
         self._poller = Poller(self._config.teams)
         self._manager = Manager(self._config.claude, db=self._db)
         self._session_mgr = SessionManager(self._config.claude, self._db, bot_name=self._config.bot.name)
-        self._responder = Responder(bot_name=self._config.bot.name)
+        self._responder = Responder(bot_name=self._config.bot.name, bot_emoji=self._config.bot.emoji)
         self._manager_chat_id: Optional[str] = None
 
         # Auto-detect owner: whoever runs the bot is always admin

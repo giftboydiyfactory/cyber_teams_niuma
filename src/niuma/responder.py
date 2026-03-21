@@ -15,12 +15,12 @@ _DEFAULT_BOT_NAME = "niuma"
 _MAX_BODY_LEN = 2000
 
 
-def _make_signature(bot_name: str = _DEFAULT_BOT_NAME) -> str:
-    return f"<hr/><p><em>Sent via {bot_name} (ai-pim-utils)</em></p>"
+def _make_signature(bot_name: str = _DEFAULT_BOT_NAME, bot_emoji: str = "🐴") -> str:
+    return f"<hr/><p><em>{bot_emoji} Sent by {bot_name}-bot</em></p>"
 
 
-def format_processing(session_id: str, bot_name: str = _DEFAULT_BOT_NAME) -> str:
-    sig = _make_signature(bot_name)
+def format_processing(session_id: str, bot_name: str = _DEFAULT_BOT_NAME, bot_emoji: str = "🐴") -> str:
+    sig = _make_signature(bot_name, bot_emoji)
     return f"<p>session [<b>{_escape(session_id)}</b>] processing...</p>{sig}"
 
 
@@ -30,8 +30,9 @@ def format_result(
     error: Optional[str] = None,
     output_dir: Optional[str] = None,
     bot_name: str = _DEFAULT_BOT_NAME,
+    bot_emoji: str = "🐴",
 ) -> str:
-    sig = _make_signature(bot_name)
+    sig = _make_signature(bot_name, bot_emoji)
     safe_sid = _escape(session_id)
     if error:
         return (
@@ -73,8 +74,8 @@ def format_result(
     )
 
 
-def format_status(session: dict[str, Any], bot_name: str = _DEFAULT_BOT_NAME) -> str:
-    sig = _make_signature(bot_name)
+def format_status(session: dict[str, Any], bot_name: str = _DEFAULT_BOT_NAME, bot_emoji: str = "🐴") -> str:
+    sig = _make_signature(bot_name, bot_emoji)
     status_icon = {
         "pending": "pending", "running": "running", "completed": "completed",
         "failed": "failed", "timeout": "timeout",
@@ -89,8 +90,8 @@ def format_status(session: dict[str, Any], bot_name: str = _DEFAULT_BOT_NAME) ->
     )
 
 
-def format_session_list(sessions: list[dict[str, Any]], bot_name: str = _DEFAULT_BOT_NAME) -> str:
-    sig = _make_signature(bot_name)
+def format_session_list(sessions: list[dict[str, Any]], bot_name: str = _DEFAULT_BOT_NAME, bot_emoji: str = "🐴") -> str:
+    sig = _make_signature(bot_name, bot_emoji)
     if not sessions:
         return f"<p>No sessions.</p>{sig}"
 
@@ -121,9 +122,10 @@ def _md_to_html(text: str) -> str:
 
 
 class Responder:
-    def __init__(self, output_dir: str = "~/.niuma/outputs", bot_name: str = _DEFAULT_BOT_NAME) -> None:
+    def __init__(self, output_dir: str = "~/.niuma/outputs", bot_name: str = _DEFAULT_BOT_NAME, bot_emoji: str = "🐴") -> None:
         self._output_dir = str(Path(output_dir).expanduser())
         self._bot_name = bot_name
+        self._bot_emoji = bot_emoji
 
     async def send(
         self, chat_id: str, html_body: str,
@@ -155,33 +157,33 @@ class Responder:
         self, chat_id: str, session_id: str,
         reply_to: Optional[str] = None,
     ) -> None:
-        await self.send(chat_id, format_processing(session_id, self._bot_name), reply_to=reply_to)
+        await self.send(chat_id, format_processing(session_id, self._bot_name, self._bot_emoji), reply_to=reply_to)
 
     async def send_result(
         self, chat_id: str, session_id: str,
         result: Optional[str] = None, error: Optional[str] = None,
         reply_to: Optional[str] = None,
     ) -> None:
-        html = format_result(session_id, result, error, self._output_dir, self._bot_name)
+        html = format_result(session_id, result, error, self._output_dir, self._bot_name, self._bot_emoji)
         await self.send(chat_id, html, reply_to=reply_to)
 
     async def send_status(
         self, chat_id: str, session: dict[str, Any],
         reply_to: Optional[str] = None,
     ) -> None:
-        await self.send(chat_id, format_status(session, self._bot_name), reply_to=reply_to)
+        await self.send(chat_id, format_status(session, self._bot_name, self._bot_emoji), reply_to=reply_to)
 
     async def send_session_list(
         self, chat_id: str, sessions: list[dict[str, Any]],
         reply_to: Optional[str] = None,
     ) -> None:
-        await self.send(chat_id, format_session_list(sessions, self._bot_name), reply_to=reply_to)
+        await self.send(chat_id, format_session_list(sessions, self._bot_name, self._bot_emoji), reply_to=reply_to)
 
     async def send_text(
         self, chat_id: str, text: str,
         reply_to: Optional[str] = None,
     ) -> None:
         body_html = _md_to_html(text)
-        sig = _make_signature(self._bot_name)
+        sig = _make_signature(self._bot_name, self._bot_emoji)
         html = f"{body_html}{sig}"
         await self.send(chat_id, html, reply_to=reply_to)
