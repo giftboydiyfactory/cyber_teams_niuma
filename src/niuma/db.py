@@ -249,6 +249,38 @@ class Database:
         )
         return [dict(r) for r in await cursor.fetchall()]
 
+    async def get_queued_messages(self, session_id: str) -> list[str]:
+        """Get user messages that were queued while the worker was busy.
+
+        Returns messages added after the last assistant message, then deletes them
+        so they aren't sent twice.
+        """
+        # Find the timestamp of the last assistant message
+        cursor = await self._conn.execute(
+            "SELECT MAX(created_at) FROM messages WHERE session_id = ? AND role = 'assistant'",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        last_assistant_ts = row[0] if row and row[0] else 0
+
+        # Get user messages after that
+        cursor = await self._conn.execute(
+            "SELECT content FROM messages WHERE session_id = ? AND role = 'user' AND created_at > ? ORDER BY created_at",
+            (session_id, last_assistant_ts),
+        )
+        rows = await cursor.fetchall()
+        messages = [r[0] for r in rows if r[0].strip()]
+
+        # Delete the queued messages so they aren't sent again
+        if messages:
+            await self._conn.execute(
+                "DELETE FROM messages WHERE session_id = ? AND role = 'user' AND created_at > ?",
+                (session_id, last_assistant_ts),
+            )
+            await self._conn.commit()
+
+        return messages
+
     async def get_session_by_chat_id(self, session_chat_id: str) -> Optional[dict[str, Any]]:
         """Find the most recent session bound to a dedicated chat."""
         cursor = await self._conn.execute(

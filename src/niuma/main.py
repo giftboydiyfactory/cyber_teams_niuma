@@ -402,6 +402,17 @@ class NiumaBot:
             sid = session["id"]
             logger.info("Session chat %s: routing to session [%s]", chat_id[:20], sid)
 
+            # Check if session is currently running — queue message for later
+            current = await self._session_mgr.get_result(sid)
+            if current and current.get("status") == "running":
+                await self._db.add_message(sid, "user", prompt)
+                await self._responder.send_text(
+                    chat_id,
+                    f"Worker is busy — your message has been queued. "
+                    f"It will be sent as a follow-up when the current task finishes.",
+                )
+                continue
+
             try:
                 await self._session_mgr.resume_session(
                     session_id=sid, prompt=prompt,

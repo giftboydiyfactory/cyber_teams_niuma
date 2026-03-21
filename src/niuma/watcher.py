@@ -162,4 +162,20 @@ async def watch_session(
                     chat_id, mgr_decision.reply_text, reply_to=reply_to,
                 )
 
+            # Auto-resume with queued messages if any were saved while worker was busy
+            if status == "completed":
+                queued = await bot._db.get_queued_messages(session_id)
+                if queued:
+                    combined = "\n\n".join(queued)
+                    logger.info("Session %s: sending %d queued messages as follow-up", session_id, len(queued))
+                    try:
+                        await bot._session_mgr.resume_session(
+                            session_id=session_id, prompt=combined,
+                        )
+                        await bot._responder.send_processing(chat_id, session_id, reply_to=reply_to)
+                        # Recurse to watch the new run
+                        await watch_session(bot, chat_id, session_id, reply_to)
+                    except Exception as e:
+                        logger.warning("Failed to resume with queued messages: %s", e)
+
             return
