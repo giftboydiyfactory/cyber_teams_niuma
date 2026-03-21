@@ -142,7 +142,7 @@ async def handle_new(
             created_by=user_email,
             prompt=decision.prompt or "",
             cwd=decision.cwd,
-            model=None,
+            model=decision.model,
             trigger_message_id=reply_to,
         )
         sid = session["id"]

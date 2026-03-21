@@ -180,3 +180,19 @@ async def create_session_chat_async(
         topic=topic,
         user_email=user_email,
     )
+
+
+def add_chat_member(*, chat_id: str, user_email: str) -> None:
+    """Add a user to an existing group chat via Graph API."""
+    token = _get_access_token()
+    body = {
+        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+        "roles": ["owner"],
+        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{user_email}",
+    }
+    _graph_post_sync(f"/chats/{chat_id}/members", body)
+
+
+async def add_chat_member_async(*, chat_id: str, user_email: str) -> None:
+    """Async wrapper for add_chat_member."""
+    await asyncio.to_thread(add_chat_member, chat_id=chat_id, user_email=user_email)

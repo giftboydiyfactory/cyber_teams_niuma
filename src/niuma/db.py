@@ -334,6 +334,21 @@ class Database:
         row = await cursor.fetchone()
         return float(row["total"]) if row else 0.0
 
+    async def get_total_cost(self) -> float:
+        """Get total cost across all sessions."""
+        async with self._conn.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM sessions") as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0.0
+
+    async def get_session_costs(self, limit: int = 10) -> list[dict]:
+        """Get recent sessions with their costs."""
+        async with self._conn.execute(
+            "SELECT id, prompt, cost_usd, status, created_at FROM sessions WHERE cost_usd > 0 ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [{"id": r[0], "prompt": r[1][:50], "cost": r[2], "status": r[3]} for r in rows]
+
     async def add_watched_chat(self, chat_id: str, added_by: str, mode: str = "full") -> None:
         """Add a chat to the watched_chats table (or update its mode if already present)."""
         now = time.time()

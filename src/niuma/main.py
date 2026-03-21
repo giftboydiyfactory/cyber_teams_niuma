@@ -149,6 +149,17 @@ class NiumaBot:
                 f"This is the Manager's communication channel. "
                 f"All user interactions and worker reports come through here."
             )
+
+            # Add configured users as members of the manager chat
+            for email in self._config.security.admin_users + self._config.security.allowed_users:
+                if email == self._owner_email or email == self._owner_display_name:
+                    continue  # Already the creator
+                try:
+                    from niuma.teams_api import add_chat_member_async
+                    await add_chat_member_async(chat_id=self._manager_chat_id, user_email=email)
+                    logger.info("Added %s to manager chat", email)
+                except Exception as e:
+                    logger.warning("Failed to add %s to manager chat: %s", email, e)
         except Exception as e:
             logger.warning("Failed to create manager chat: %s", e)
             return ""
@@ -217,8 +228,26 @@ class NiumaBot:
                 logger.exception("Error in poll cycle")
             await asyncio.sleep(self._config.teams.poll_interval)
 
+    async def _check_config_reload(self) -> None:
+        """Reload config if the file has been modified."""
+        import os
+        config_path = Path.home() / ".niuma" / "config.yaml"
+        try:
+            mtime = os.path.getmtime(config_path)
+            if not hasattr(self, '_config_mtime'):
+                self._config_mtime = mtime
+                return
+            if mtime > self._config_mtime:
+                self._config_mtime = mtime
+                new_config = load_config(config_path)
+                self._config = new_config
+                logger.info("Config reloaded from %s", config_path)
+        except Exception:
+            pass  # Non-fatal
+
     async def poll_once(self) -> None:
         """Single poll cycle across all configured chats + manager chat + session chats."""
+        await self._check_config_reload()
         # Merge config chat_ids with dynamically watched chats from DB
         watched = await self._db.list_watched_chats()
         watched_ids = {w["chat_id"]: w["mode"] for w in watched}

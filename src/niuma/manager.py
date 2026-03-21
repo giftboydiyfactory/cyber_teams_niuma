@@ -79,12 +79,17 @@ Return a JSON object with ONE of these actions:
 4. {"action": "report", "reply_text": "status update"}
    Proactively report status/summary to the user
 
+5. {"action": "new", "prompt": "...", "model": "opus"}
+   Use "model" to override the default worker model for complex tasks.
+   Options: "haiku" (simple/fast), "sonnet" (default), "opus" (complex reasoning)
+
 ## Guidelines
 - When a user asks about worker status, check your memory first (you saw the results)
 - When a worker finishes, you'll receive its output. Summarize and report to user.
 - For complex requests, break them into subtasks and assign to multiple workers
 - Keep the user informed about what's happening
 - You are the SINGLE point of contact. Users don't talk to workers directly.
+- When users ask about costs, report total and per-session costs from the DB
 
 Return ONLY valid JSON. No other text.\
 """
@@ -98,6 +103,7 @@ _MANAGER_SCHEMA = json.dumps({
         "cwd": {"type": "string"},
         "reply_text": {"type": "string"},
         "dedicated_chat": {"type": "boolean"},
+        "model": {"type": "string"},
     },
     "required": ["action"],
 })
@@ -111,6 +117,7 @@ class ManagerDecision:
     cwd: Optional[str] = None
     reply_text: Optional[str] = None
     dedicated_chat: bool = False
+    model: Optional[str] = None
 
     @classmethod
     def from_claude_output(cls, raw_output: str) -> "ManagerDecision":
@@ -137,6 +144,7 @@ class ManagerDecision:
             cwd=inner.get("cwd"),
             reply_text=inner.get("reply_text"),
             dedicated_chat=inner.get("dedicated_chat", False),
+            model=inner.get("model"),
         )
 
 
